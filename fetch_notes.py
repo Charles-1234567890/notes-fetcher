@@ -26,9 +26,15 @@ HEAD = {
     "User-Agent": "Mozilla/5.0",
     "Content-Type": "application/json;charset=UTF-8",
 }
-OUT_ROOT    = pathlib.Path("daily_notes")
-STATE_JSON  = pathlib.Path("state.json")
-OUT_ROOT.mkdir(exist_ok=True)
+
+import pathlib, datetime
+
+VAULT = (pathlib.Path.home()
+         / "Library" / "Mobile Documents"
+         / "com~apple~CloudDocs" / "ObsidianNotes" / "CharlesVault")
+
+OUT_ROOT   = VAULT / "00-Inbox" / "GetNotes"
+STATE_JSON = OUT_ROOT / "state.json"
 
 # ── persistent dedup list ───────────────────────────────────────────────────────
 seen = set()
@@ -39,12 +45,27 @@ if STATE_JSON.exists():
         pass
 
 # ── 1 · create export task ──────────────────────────────────────────────────────
-create_url = f"{HOST}/voicenotes/web/sync/export/create"
-resp = requests.post(create_url, headers=HEAD, json={"type": "zip "})
-try:
-    task_id = resp.json()["c"]["data"]["id"]
-except Exception:
-    sys.exit(f"🔴 create failed ({resp.status_code}): {resp.text[:200]}")
+import random, datetime
+
+def create_task():
+    while True:
+        resp = requests.post(
+            f"{HOST}/voicenotes/web/sync/export/create",
+            headers=HEAD,
+            json={"type": "zip "}
+        )
+        j = resp.json()
+        code = j["h"]["c"]
+        if code == 0:
+            return j["c"]["data"]["id"]
+        if code == 40014:                      # too frequent
+            wait = random.randint(60, 90)      # 1-1½ min
+            print(f"☕  API busy; retry in {wait}s")
+            time.sleep(wait)
+            continue
+        sys.exit(f"🔴 create failed {resp.text[:200]}")
+
+task_id = create_task()
 
 # ── 2 · poll until status = success ─────────────────────────────────────────────
 poll_url = f"{HOST}/voicenotes/web/sync/export/tasks/{task_id}"
